@@ -113,6 +113,22 @@ export function JarvisConsole() {
             channel.current?.send(JSON.stringify({ type: "response.create" }));
           })();
         }
+        if (message.type === "response.function_call_arguments.done" && message.name === "research_real_estate" && message.call_id) {
+          let query = "";
+          try { query = JSON.parse(message.arguments || "{}").query || ""; } catch { /* The tool output reports the invalid request. */ }
+          void (async () => {
+            let output: unknown = { error: "A property address or real-estate question is required." };
+            if (query) {
+              try {
+                const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: query }) });
+                const result = await response.json() as { reply?: string; error?: string };
+                output = response.ok && result.reply ? { research: result.reply } : { error: result.error || "Property research is unavailable." };
+              } catch { output = { error: "Live property research is temporarily unavailable." }; }
+            }
+            channel.current?.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: message.call_id, output: JSON.stringify(output) } }));
+            channel.current?.send(JSON.stringify({ type: "response.create" }));
+          })();
+        }
       };
       const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
       const form = new FormData(); form.set("sdp", offer.sdp || "");

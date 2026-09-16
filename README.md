@@ -7,6 +7,7 @@ Secure JARVIS command center with live voice, flagship reasoning, web-aware mult
 - Select **APP BUILDER** in the interface, describe a product, and choose a preferred stack.
 - Jarvis returns a structured multi-file starter project with setup steps, a file browser, copy controls, and a downloadable project manifest.
 - Text chat uses the Responses API, high reasoning, live web search, and the recent conversation as context.
+- Real-estate intelligence is built into normal text and voice conversations: ask about an address, Zillow listing, comps, ARV, MAO, wholesale, flip, or rental analysis without switching modes.
 - The default text and builder model is `gpt-6-astra`; set `JARVIS_TEXT_MODEL` and `JARVIS_BUILDER_MODEL` to override it.
 - Set `JARVIS_REASONING_EFFORT` to `low`, `medium`, `high`, `xhigh`, or `max` based on your model and account access.
 
