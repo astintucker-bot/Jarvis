@@ -13,6 +13,23 @@ function getOutputText(payload: any) {
     .map((part: any) => part?.text || "").join("\n").trim();
 }
 
+async function requestOpenAI(key: string, requestBody: Record<string, unknown>) {
+  const send = () => fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify(requestBody),
+  });
+  let response = await send();
+  let payload = await response.json();
+  const message = String(payload?.error?.message || "");
+  if (!response.ok && /reasoning(?:\.effort)?[^.]*not supported|unsupported parameter[^.]*reasoning/i.test(message)) {
+    delete requestBody.reasoning;
+    response = await send();
+    payload = await response.json();
+  }
+  return { response, payload };
+}
+
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({})) as { message?: unknown; messages?: unknown };
   const legacyMessage = typeof body.message === "string" ? body.message.trim() : "";
@@ -27,19 +44,14 @@ export async function POST(request: NextRequest) {
   if (!key) return NextResponse.json({ error: "Text chat is not configured. Add OPENAI_API_KEY to the server environment." }, { status: 503 });
 
   try {
-    const upstream = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: process.env.JARVIS_TEXT_MODEL || "gpt-6-astra",
-        reasoning: { effort: process.env.JARVIS_REASONING_EFFORT || "high" },
-        instructions: JARVIS_PROMPT,
-        input: messages,
-        tools: [{ type: "web_search" }],
-        store: false,
-      }),
+    const { response: upstream, payload } = await requestOpenAI(key, {
+      model: process.env.JARVIS_TEXT_MODEL || "gpt-6-astra",
+      reasoning: { effort: process.env.JARVIS_REASONING_EFFORT || "high" },
+      instructions: JARVIS_PROMPT,
+      input: messages,
+      tools: [{ type: "web_search" }],
+      store: false,
     });
-    const payload = await upstream.json();
     const reply = getOutputText(payload);
     if (!upstream.ok || !reply) return NextResponse.json({ error: payload?.error?.message || "The AI service could not answer right now." }, { status: upstream.status || 502 });
     return NextResponse.json({ reply });

@@ -28,6 +28,23 @@ function safePath(path: string) {
   return Boolean(path) && !path.startsWith("/") && !path.includes("..") && path.length <= 180;
 }
 
+async function requestOpenAI(key: string, requestBody: Record<string, unknown>) {
+  const send = () => fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify(requestBody),
+  });
+  let response = await send();
+  let payload = await response.json();
+  const message = String(payload?.error?.message || "");
+  if (!response.ok && /reasoning(?:\.effort)?[^.]*not supported|unsupported parameter[^.]*reasoning/i.test(message)) {
+    delete requestBody.reasoning;
+    response = await send();
+    payload = await response.json();
+  }
+  return { response, payload };
+}
+
 export async function POST(request: NextRequest) {
   const key = process.env.OPENAI_API_KEY;
   if (!key) return NextResponse.json({ error: "App Builder is not configured. Add OPENAI_API_KEY." }, { status: 503 });
@@ -37,20 +54,15 @@ export async function POST(request: NextRequest) {
     const stack = typeof body.stack === "string" ? body.stack.trim().slice(0, 500) : "";
     if (idea.length < 10) return NextResponse.json({ error: "Describe the app in at least 10 characters." }, { status: 400 });
 
-    const upstream = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: process.env.JARVIS_BUILDER_MODEL || process.env.JARVIS_TEXT_MODEL || "gpt-6-astra",
-        reasoning: { effort: process.env.JARVIS_REASONING_EFFORT || "high" },
-        instructions: APP_BUILDER_PROMPT,
-        input: `APP IDEA:\n${idea}\n\nPREFERRED STACK:\n${stack || "Choose the best fit."}`,
-        text: { format: { type: "json_schema", name: "app_project", strict: true, schema: projectSchema } },
-        max_output_tokens: 64_000,
-        store: false,
-      }),
+    const { response: upstream, payload } = await requestOpenAI(key, {
+      model: process.env.JARVIS_BUILDER_MODEL || process.env.JARVIS_TEXT_MODEL || "gpt-6-astra",
+      reasoning: { effort: process.env.JARVIS_REASONING_EFFORT || "high" },
+      instructions: APP_BUILDER_PROMPT,
+      input: `APP IDEA:\n${idea}\n\nPREFERRED STACK:\n${stack || "Choose the best fit."}`,
+      text: { format: { type: "json_schema", name: "app_project", strict: true, schema: projectSchema } },
+      max_output_tokens: 64_000,
+      store: false,
     });
-    const payload = await upstream.json();
     if (!upstream.ok) return NextResponse.json({ error: payload?.error?.message || "App generation failed." }, { status: upstream.status });
     const project = JSON.parse(outputText(payload));
     project.files = project.files.filter((file: any) => file && typeof file.path === "string" && typeof file.content === "string" && safePath(file.path));
