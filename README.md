@@ -1,6 +1,14 @@
 # JARVIS AI Assistant
 
-Secure, local-first JARVIS command center with AI chat, conversation history, projects, tasks, file intake, and a responsive command-center interface.
+Secure JARVIS command center with live voice, flagship reasoning, web-aware multi-turn chat, file tools, weather, music controls, and an AI App Builder.
+
+## App Builder and advanced intelligence
+
+- Select **APP BUILDER** in the interface, describe a product, and choose a preferred stack.
+- Jarvis returns a structured multi-file starter project with setup steps, a file browser, copy controls, and a downloadable project manifest.
+- Text chat uses the Responses API, high reasoning, live web search, and the recent conversation as context.
+- The default text and builder model is `gpt-6-astra`; set `JARVIS_TEXT_MODEL` and `JARVIS_BUILDER_MODEL` to override it.
+- Set `JARVIS_REASONING_EFFORT` to `low`, `medium`, `high`, `xhigh`, or `max` based on your model and account access.
 
 ## Realtime voice (new Phase 1 app)
 
@@ -15,7 +23,7 @@ The new Next.js app lives alongside the original Python version so the existing 
 
 ## Vercel production deployment
 
-Vercel needs the same four server environment variables: `OPENAI_API_KEY`, `JARVIS_TEXT_MODEL`, `JARVIS_REALTIME_MODEL`, and `JARVIS_VOICE`. Do not add a `NEXT_PUBLIC_` prefix to the API key. Add them in the Vercel Production environment, deploy with `vercel deploy --prod`, and use the resulting HTTPS URL for microphone access.
+Vercel needs `OPENAI_API_KEY` and can optionally set `JARVIS_TEXT_MODEL`, `JARVIS_BUILDER_MODEL`, `JARVIS_REASONING_EFFORT`, `JARVIS_REALTIME_MODEL`, and `JARVIS_VOICE`. Do not add a `NEXT_PUBLIC_` prefix to the API key. Add them in the Vercel Production environment and use the resulting HTTPS URL for microphone access.
 
 The new Phase 1 page is intentionally separate from `server.py`. The legacy app still starts with `python3 server.py` and is documented below.
 
