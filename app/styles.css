@@ -3,6 +3,16 @@
 .file-input { display: none; }
 body { margin: 0; min-width: 320px; color: #e8f9ff; font-family: "Avenir Next", ui-sans-serif, system-ui, sans-serif; background: #03070c; }
 body::before { content: ""; position: fixed; inset: 0; pointer-events: none; opacity: .5; background-image: linear-gradient(#1a4a5c22 1px, transparent 1px), linear-gradient(90deg, #1a4a5c22 1px, transparent 1px), radial-gradient(circle at 50% 44%, #075d795c, transparent 30%), radial-gradient(circle at 12% 15%, #8e1d221f, transparent 28%); background-size: 42px 42px, 42px 42px, auto, auto; }
+.unlock-shell { min-height: 100vh; display: grid; place-items: center; padding: 20px; position: relative; }
+.unlock-card { width: min(100%, 430px); display: grid; justify-items: center; gap: 14px; padding: 34px; border: 1px solid #56cbed77; background: linear-gradient(135deg, #04151cee, #071119ee); box-shadow: inset 0 0 38px #28bde515, 0 22px 80px #000b; }
+.unlock-orb { width: 100px; aspect-ratio: 1; display: grid; place-items: center; border: 1px solid #79e9ff; border-radius: 50%; font: 42px ui-monospace, Menlo, monospace; text-shadow: 0 0 18px #39c8ee; box-shadow: 0 0 38px #078ca566, inset 0 0 22px #82efff55; }
+.unlock-card small, .unlock-card label { color: #74b8cb; font: 10px ui-monospace, Menlo, monospace; letter-spacing: .15em; }
+.unlock-card h1 { margin: 8px 0 0; }
+.unlock-card p { color: #99b3bd; text-align: center; line-height: 1.5; }
+.unlock-card form { width: 100%; display: grid; gap: 10px; }
+.unlock-card input { width: 100%; padding: 12px; border: 1px solid #56cbed88; background: #050d12; color: #effcff; font: inherit; outline: none; }
+.unlock-card input:focus { border-color: #a9f3ff; box-shadow: 0 0 16px #19b7dc55; }
+.unlock-card strong { color: #ff9b90; font-weight: 500; text-align: center; }
 .jarvis { position: relative; isolation: isolate; min-height: 100vh; max-width: 1040px; margin: auto; padding: 24px 40px 34px; display: grid; place-items: center; gap: 14px; overflow: hidden; }
 .jarvis::before, .jarvis::after { content: ""; position: absolute; z-index: -1; width: 260px; height: 260px; border: 1px solid #66deff55; clip-path: polygon(0 0, 100% 0, 100% 12%, 12% 12%, 12% 100%, 0 100%); }
 .jarvis::before { top: 18px; left: 18px; }.jarvis::after { right: 18px; bottom: 18px; transform: rotate(180deg); border-color: #ff8d6655; }
