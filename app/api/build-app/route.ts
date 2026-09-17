@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { APP_BUILDER_PROMPT } from "../../../lib/jarvisPrompt";
+import { checkRateLimit, rateLimitResponse, requestIdentity } from "../../../lib/rateLimit";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -46,6 +47,9 @@ async function requestOpenAI(key: string, requestBody: Record<string, unknown>) 
 }
 
 export async function POST(request: NextRequest) {
+  const limit = checkRateLimit("app-builder", requestIdentity(request), 10, 60 * 60 * 1_000);
+  if (!limit.allowed) return rateLimitResponse(limit);
+  if (Number(request.headers.get("content-length") || 0) > 20_000) return NextResponse.json({ error: "App description is too large." }, { status: 413 });
   const key = process.env.OPENAI_API_KEY;
   if (!key) return NextResponse.json({ error: "App Builder is not configured. Add OPENAI_API_KEY." }, { status: 503 });
   try {
