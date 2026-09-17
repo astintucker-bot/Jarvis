@@ -2,6 +2,12 @@
 
 Secure JARVIS command center with live voice, flagship reasoning, web-aware multi-turn chat, file tools, weather, music controls, and an AI App Builder.
 
+## Private owner access
+
+Set `JARVIS_ACCESS_PASSWORD` to a long, unique password in Vercel and redeploy. JARVIS will show a private unlock screen before loading the existing interface. The password never enters client code; a successful login creates a secure, HTTP-only, same-site cookie that lasts 30 days. Chat, App Builder, voice, documents, weather, and music API routes are protected by the same access layer.
+
+High-cost features also have server-side safety limits: 60 chat requests, 10 app builds, and 20 new voice sessions per hour per network address. Login attempts are limited to 10 per 15 minutes. These in-process limits are a safety backstop; use a shared durable rate-limit store before allowing multiple users or high traffic.
+
 ## App Builder and advanced intelligence
 
 - Select **APP BUILDER** in the interface, describe a product, and choose a preferred stack.
