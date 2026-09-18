@@ -60,7 +60,7 @@ export function createMicrosoftAuthorization(request: NextRequest) {
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const params = new URLSearchParams({
     client_id: process.env.MICROSOFT_CLIENT_ID!, response_type: "code", redirect_uri: redirectUri(request),
-    response_mode: "query", scope: "openid profile offline_access Files.ReadWrite Calendars.Read", state,
+    response_mode: "query", scope: "openid profile offline_access User.Read Files.ReadWrite Calendars.Read", state,
     code_challenge: challenge, code_challenge_method: "S256", prompt: "consent",
   });
   return { url: `https://login.microsoftonline.com/${tenant()}/oauth2/v2.0/authorize?${params}`, state, verifier };
@@ -86,7 +86,7 @@ export async function exchangeMicrosoftCode(request: NextRequest, code: string, 
 async function refreshMicrosoftSession(session: MicrosoftSession) {
   return tokenRequest(new URLSearchParams({
     client_id: process.env.MICROSOFT_CLIENT_ID!, client_secret: process.env.MICROSOFT_CLIENT_SECRET!,
-    grant_type: "refresh_token", refresh_token: session.refreshToken, scope: "openid profile offline_access Files.ReadWrite Calendars.Read",
+    grant_type: "refresh_token", refresh_token: session.refreshToken, scope: "openid profile offline_access User.Read Files.ReadWrite Calendars.Read",
   }), session.refreshToken);
 }
 
