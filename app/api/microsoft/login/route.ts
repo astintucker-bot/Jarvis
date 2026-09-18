@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isAccessAuthorized, isAccessConfigured } from "../../../../lib/accessAuth";
 import { createMicrosoftAuthorization, MICROSOFT_STATE_COOKIE, MICROSOFT_VERIFIER_COOKIE } from "../../../../lib/microsoftGraph";
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest) {
+  if (!isAccessConfigured() || !isAccessAuthorized(request)) return NextResponse.redirect(new URL("/?calendar_error=Unlock+Jarvis+before+connecting+Microsoft.", request.url));
   try {
     const authorization = createMicrosoftAuthorization(request);
     const response = NextResponse.redirect(authorization.url);
