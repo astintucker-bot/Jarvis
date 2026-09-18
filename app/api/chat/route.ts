@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isAccessAuthorized, isAccessConfigured } from "../../../lib/accessAuth";
 import { setMicrosoftSession } from "../../../lib/microsoftGraph";
 import { JARVIS_PROMPT } from "../../../lib/jarvisPrompt";
-import { getCurrentTimeLabel } from "../../../lib/interviewCoach";
+import { getCurrentTimeLabel, getInterviewConfig } from "../../../lib/interviewCoach";
 import { createWordToolContext, PendingWordEdit, WORD_TOOLS } from "../../../lib/wordTools";
 
 export const runtime = "nodejs";
@@ -38,6 +39,8 @@ function pendingFromBody(value: unknown): PendingWordEdit | null {
 }
 
 export async function POST(request: NextRequest) {
+  if (getInterviewConfig() && !isAccessConfigured()) return NextResponse.json({ error: "Private interview coaching requires JARVIS_ACCESS_PASSWORD in Vercel." }, { status: 503 });
+  if (isAccessConfigured() && !isAccessAuthorized(request)) return NextResponse.json({ error: "Unlock Jarvis to continue." }, { status: 401 });
   const body = await request.json().catch(() => ({})) as { message?: unknown; messages?: unknown; pendingWordEdit?: unknown };
   const legacyMessage = typeof body.message === "string" ? body.message.trim() : "";
   const messages: ChatMessage[] = (Array.isArray(body.messages) ? body.messages : legacyMessage ? [{ role: "user", content: legacyMessage }] : [])
