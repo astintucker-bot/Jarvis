@@ -9,7 +9,7 @@ Secure JARVIS command center with live voice, flagship reasoning, web-aware mult
 - Existing files are never overwritten on the initial request. JARVIS creates a reviewable draft and requires a separate explicit confirmation before replacing the original. OneDrive version history remains available.
 - Register a Microsoft Entra web application and add `https://YOUR-DOMAIN/api/microsoft/callback` as its redirect URI.
 - Add `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_SESSION_SECRET` (at least 32 random characters), and optionally `MICROSOFT_TENANT_ID` and `MICROSOFT_REDIRECT_URI` to Vercel.
-- The delegated scopes are `Files.ReadWrite` and read-only `Calendars.Read`. OAuth tokens are encrypted in an HTTP-only, secure cookie and are never exposed to browser JavaScript.
+- The delegated scopes are `User.Read`, `Files.ReadWrite`, and read-only `Calendars.Read`. OAuth tokens are encrypted in an HTTP-only, secure cookie and are never exposed to browser JavaScript.
 
 ## Outlook and Google Calendar coaching
 
