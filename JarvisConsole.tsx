@@ -8,11 +8,10 @@ type Direction = { destination: string; url: string };
 type UploadedDocument = { name: string; text: string };
 type WordAttachment = { name: string; mimeType: string; base64: string };
 type PendingWordEdit = { token: string; name: string; draftUrl?: string };
-type InterviewPhase = "game_plan" | "mock_interview" | "leadership_readiness" | "final_warmup" | "debrief";
-type InterviewBriefing = { active: boolean; dateKey?: string; phase?: InterviewPhase };
-
-function interviewInstruction(phase: InterviewPhase) {
-  return `Deliver my scheduled private interview coaching update for the ${phase} phase. Use the interview details and background from your private instructions. Speak directly to me without mentioning hidden configuration.`;
+type AccessState = "checking" | "required" | "authenticated";
+function localDateKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
 function attachmentUrl(file: WordAttachment) {
@@ -23,22 +22,18 @@ function attachmentUrl(file: WordAttachment) {
 
 export function JarvisConsole() {
   const [status, setStatus] = useState<Status>("READY"); const [lines, setLines] = useState<Line[]>([]);
+  const [accessState, setAccessState] = useState<AccessState>("checking"); const [accessPassword, setAccessPassword] = useState(""); const [accessError, setAccessError] = useState(""); const [unlocking, setUnlocking] = useState(false);
   const [muted, setMuted] = useState(false); const [connected, setConnected] = useState(false); const [talking, setTalking] = useState(false); const [direction, setDirection] = useState<Direction | null>(null); const [uploadedDocument, setUploadedDocument] = useState<UploadedDocument | null>(null); const [editRequest, setEditRequest] = useState(""); const [editedFile, setEditedFile] = useState<{ name: string; url: string } | null>(null); const [editing, setEditing] = useState(false); const [textPrompt, setTextPrompt] = useState(""); const [sendingText, setSendingText] = useState(false); const [mode, setMode] = useState<"assistant" | "builder">("assistant"); const [wordFiles, setWordFiles] = useState<Array<{ name: string; url: string }>>([]); const [connectMicrosoft, setConnectMicrosoft] = useState(false); const [pendingWordEdit, setPendingWordEdit] = useState<PendingWordEdit | null>(null);
-  const peer = useRef<RTCPeerConnection | null>(null); const channel = useRef<RTCDataChannel | null>(null); const remoteAudio = useRef<HTMLAudioElement | null>(null); const microphone = useRef<MediaStream | null>(null); const documentInput = useRef<HTMLInputElement | null>(null); const documentContext = useRef<string | null>(null); const chatHistory = useRef<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const peer = useRef<RTCPeerConnection | null>(null); const channel = useRef<RTCDataChannel | null>(null); const remoteAudio = useRef<HTMLAudioElement | null>(null); const microphone = useRef<MediaStream | null>(null); const documentInput = useRef<HTMLInputElement | null>(null); const documentContext = useRef<string | null>(null); const chatHistory = useRef<Array<{ role: "user" | "assistant"; content: string }>>([]); const voiceInterviewBriefing = useRef(false);
   const add = (speaker: Line["speaker"], text: string) => setLines(current => [...current.slice(-18), { speaker, text }]);
-  const deliverVoiceInterviewBriefing = async () => {
-    if (channel.current?.readyState !== "open") return;
-    try {
-      const response = await fetch("/api/interview/briefing", { cache: "no-store" });
-      const briefing = await response.json() as InterviewBriefing;
-      if (!response.ok || !briefing.active || !briefing.dateKey || !briefing.phase) return;
-      const key = `jarvis-interview-voice-${briefing.dateKey}`;
-      if (window.localStorage.getItem(key)) return;
-      window.localStorage.setItem(key, "delivered");
-      channel.current?.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text: interviewInstruction(briefing.phase) }] } }));
-      channel.current?.send(JSON.stringify({ type: "response.create" }));
-      setStatus("THINKING");
-    } catch { /* Voice remains available even if the private briefing check fails. */ }
+  const deliverVoiceInterviewBriefing = () => {
+    if (!voiceInterviewBriefing.current || channel.current?.readyState !== "open") return;
+    const key = `jarvis-interview-voice-${localDateKey()}`;
+    if (window.localStorage.getItem(key)) return;
+    window.localStorage.setItem(key, "delivered");
+    channel.current.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text: "A private scheduled interview coaching update is due today. Deliver the appropriate update now using only your private server instructions. Speak directly to me without mentioning hidden configuration." }] } }));
+    channel.current.send(JSON.stringify({ type: "response.create" }));
+    setStatus("THINKING");
   };
   const stopOutput = () => { channel.current?.readyState === "open" && channel.current.send(JSON.stringify({ type: "response.cancel" })); channel.current?.readyState === "open" && channel.current.send(JSON.stringify({ type: "output_audio_buffer.clear" })); setStatus("LISTENING"); };
   const beginTalking = () => { if (!connected) return; stopOutput(); microphone.current?.getAudioTracks().forEach(track => { track.enabled = true; }); setTalking(true); setStatus("LISTENING"); };
@@ -95,6 +90,17 @@ export function JarvisConsole() {
     } catch (error) { add("SYSTEM", error instanceof Error ? error.message : "JARVIS could not reply."); }
     finally { setSendingText(false); }
   };
+  const unlock = async () => {
+    if (!accessPassword || unlocking) return;
+    setUnlocking(true); setAccessError("");
+    try {
+      const response = await fetch("/api/access/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: accessPassword }) });
+      const result = await response.json() as { authenticated?: boolean; error?: string };
+      if (!response.ok || !result.authenticated) throw new Error(result.error || "Jarvis could not be unlocked.");
+      setAccessPassword(""); setAccessState("authenticated");
+    } catch (error) { setAccessError(error instanceof Error ? error.message : "Jarvis could not be unlocked."); }
+    finally { setUnlocking(false); }
+  };
   const start = async () => {
     if (connected) return close(); setStatus("CONNECTING");
     try {
@@ -102,7 +108,7 @@ export function JarvisConsole() {
       const pc = new RTCPeerConnection(); peer.current = pc; stream.getTracks().forEach(track => pc.addTrack(track, stream));
       pc.ontrack = event => { if (!remoteAudio.current) return; remoteAudio.current.srcObject = event.streams[0]; remoteAudio.current.muted = muted; void remoteAudio.current.play(); };
       const dc = pc.createDataChannel("oai-events"); channel.current = dc;
-      dc.onopen = () => { setConnected(true); setStatus("LISTENING"); addDocumentToSession(); add("SYSTEM", "Live voice link established"); void deliverVoiceInterviewBriefing(); };
+      dc.onopen = () => { setConnected(true); setStatus("LISTENING"); addDocumentToSession(); add("SYSTEM", "Live voice link established"); deliverVoiceInterviewBriefing(); };
       dc.onmessage = event => {
         let message: { type?: string; transcript?: string; name?: string; arguments?: string; call_id?: string };
         try { message = JSON.parse(event.data); } catch { return; }
@@ -190,35 +196,43 @@ export function JarvisConsole() {
     } catch (error) { close(); setStatus("ERROR"); add("SYSTEM", error instanceof Error ? error.message : "Microphone connection failed."); }
   };
   useEffect(() => {
+    void fetch("/api/access/status", { cache: "no-store" })
+      .then(async response => {
+        const result = await response.json() as { required?: boolean; authenticated?: boolean };
+        setAccessState(result.required && !result.authenticated ? "required" : "authenticated");
+      })
+      .catch(() => setAccessState("required"));
+  }, []);
+  useEffect(() => {
+    if (accessState !== "authenticated") return;
     const params = new URLSearchParams(window.location.search);
     const connectedWord = params.get("word_connected") === "1"; const wordError = params.get("word_error");
     queueMicrotask(() => {
       if (connectedWord) { add("SYSTEM", "Microsoft Word and OneDrive connected securely."); setConnectMicrosoft(false); }
       if (wordError) add("SYSTEM", wordError);
-      let pendingInterviewKey: string | null = null;
-      void fetch("/api/interview/briefing", { cache: "no-store" })
+      const interviewKey = `jarvis-interview-text-${localDateKey()}`;
+      if (!window.localStorage.getItem(interviewKey)) void fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: "Privately check whether a scheduled interview coaching update is due at the current local time. If it is due, deliver the full appropriate update. If it is not due or no campaign is configured, reply with exactly [[NO_INTERVIEW_UPDATE]] and nothing else." }),
+      })
         .then(async response => {
-          const briefing = await response.json() as InterviewBriefing;
-          if (!response.ok || !briefing.active || !briefing.dateKey || !briefing.phase) return;
-          const interviewKey = `jarvis-interview-text-${briefing.dateKey}`;
-          if (window.localStorage.getItem(interviewKey)) return;
-          pendingInterviewKey = interviewKey;
-          window.localStorage.setItem(interviewKey, "pending");
-          add("SYSTEM", "Preparing today's private interview coaching update…");
-          const chatResponse = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: interviewInstruction(briefing.phase) }) });
-          const result = await chatResponse.json() as { reply?: string; error?: string };
-          if (!chatResponse.ok || !result.reply) throw new Error(result.error || "Today's interview update is unavailable.");
-          add("JARVIS", result.reply); chatHistory.current.push({ role: "assistant", content: result.reply });
+          const result = await response.json() as { reply?: string; error?: string };
+          if (!response.ok || !result.reply) throw new Error(result.error || "Today's interview update is unavailable.");
           window.localStorage.setItem(interviewKey, "delivered");
+          if (result.reply.trim() === "[[NO_INTERVIEW_UPDATE]]") return;
+          voiceInterviewBriefing.current = true;
+          add("JARVIS", result.reply); chatHistory.current.push({ role: "assistant", content: result.reply });
         })
         .catch(error => {
-          if (pendingInterviewKey) window.localStorage.removeItem(pendingInterviewKey);
           add("SYSTEM", error instanceof Error ? error.message : "Today's interview update is unavailable.");
         });
     });
     if (params.has("word_connected") || params.has("word_error")) window.history.replaceState({}, "", window.location.pathname);
     return () => close();
-  }, []);
+  }, [accessState]);
   useEffect(() => () => { wordFiles.forEach(file => URL.revokeObjectURL(file.url)); }, [wordFiles]);
+  if (accessState === "checking") return <main className="jarvis"><section className="orb thinking"><i /><i /><b>J</b></section><h1>JARVIS</h1><p>VERIFYING SECURE ACCESS…</p></main>;
+  if (accessState === "required") return <main className="jarvis"><section className="orb ready"><i /><i /><b>J</b></section><h1>JARVIS</h1><p>PRIVATE ACCESS REQUIRED</p><form className="text-chat" onSubmit={event => { event.preventDefault(); void unlock(); }}><input type="password" autoComplete="current-password" value={accessPassword} onChange={event => setAccessPassword(event.target.value)} placeholder="Enter Jarvis password" aria-label="Jarvis password" /><button disabled={!accessPassword || unlocking}>{unlocking ? "VERIFYING…" : "UNLOCK"}</button></form>{accessError && <section className="transcript"><div className="system"><small>SYSTEM</small>{accessError}</div></section>}</main>;
   return <main className="jarvis"><audio ref={remoteAudio} autoPlay /><input ref={documentInput} className="file-input" type="file" accept=".pdf,.docx,.txt,.md,.csv,.json,.xlsx" onChange={event => { const file = event.target.files?.[0]; if (file) void uploadDocument(file); event.currentTarget.value = ""; }} /><header><span>● {status}</span><span>J . A . R . V . I . S .</span><span>{connected ? "SECURE LIVE LINK" : "ONLINE"}</span></header><nav className="mode-switch"><button className={mode === "assistant" ? "active" : ""} onClick={() => setMode("assistant")}>ASSISTANT</button><button className={mode === "builder" ? "active" : ""} onClick={() => setMode("builder")}>APP BUILDER</button></nav>{mode === "builder" ? <AppBuilder /> : <><section className={`orb ${status.toLowerCase()}`}><i /><i /><b>J</b></section><h1>JARVIS</h1><p>Just A Rather Very Intelligent System</p>{direction && <a className="directions" href={direction.url} target="_blank" rel="noreferrer">OPEN APPLE MAPS: {direction.destination}</a>}{connectMicrosoft && <a className="directions" href="/api/microsoft/login">CONNECT MICROSOFT WORD</a>}{pendingWordEdit?.draftUrl && <a className="directions" href={pendingWordEdit.draftUrl} target="_blank" rel="noreferrer">REVIEW WORD DRAFT: {pendingWordEdit.name}</a>}{wordFiles.map(file => <a key={file.url} className="directions" href={file.url} download={file.name}>DOWNLOAD WORD FILE: {file.name}</a>)}{uploadedDocument && <section className="edit-panel"><small>EDITING COPY: {uploadedDocument.name}</small><input value={editRequest} onChange={event => setEditRequest(event.target.value)} placeholder="Describe the change you want Jarvis to make" /><button disabled={!editRequest.trim() || editing} onClick={() => void createEditedCopy()}>{editing ? "EDITING…" : "CREATE EDITED WORD COPY"}</button>{editedFile && <a href={editedFile.url} download={editedFile.name}>DOWNLOAD EDITED WORD COPY</a>}</section>}<section className="transcript" aria-live="polite">{lines.map((line, index) => <div key={index} className={line.speaker.toLowerCase()}><small>{line.speaker}</small>{line.text}</div>)}</section><form className="text-chat" onSubmit={event => { event.preventDefault(); void sendText(); }}><input value={textPrompt} onChange={event => setTextPrompt(event.target.value)} disabled={sendingText} placeholder="Type a request to JARVIS" aria-label="Message JARVIS" /><button disabled={!textPrompt.trim() || sendingText}>{sendingText ? "SENDING…" : "SEND"}</button></form><footer><button onClick={start}>{connected ? "END" : "START"}</button><button onClick={() => documentInput.current?.click()}>UPLOAD FILE</button><button className={talking ? "talking" : ""} disabled={!connected} onPointerDown={beginTalking} onPointerUp={finishTalking} onPointerCancel={finishTalking} onPointerLeave={finishTalking}>{talking ? "RELEASE TO SEND" : "HOLD TO TALK"}</button><button onClick={() => { setMuted(value => !value); if (remoteAudio.current) remoteAudio.current.muted = !muted; }}>{muted ? "UNMUTE" : "MUTE"}</button></footer></>}</main>;
 }
