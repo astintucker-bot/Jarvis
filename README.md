@@ -26,6 +26,7 @@ Secure JARVIS command center with live voice, flagship reasoning, web-aware mult
 - Ask JARVIS for complete preparation or a mock interview. Mock interviews ask one question at a time, score the response, and provide a stronger version before continuing.
 - Personal interview details stay in server-only Vercel settings: `JARVIS_INTERVIEW_ROLE`, `JARVIS_INTERVIEW_INTERVIEWER`, `JARVIS_INTERVIEW_START`, `JARVIS_INTERVIEW_END`, `JARVIS_INTERVIEW_TIME_ZONE`, `JARVIS_INTERVIEW_PREP_DAYS`, and `JARVIS_INTERVIEW_BACKGROUND`.
 - Date-aware briefings begin the configured number of preparation days before the interview. Opening JARVIS delivers the daily chat briefing once, and starting the live voice link delivers the spoken briefing once. Delivery state is stored only in that browser's local storage.
+- Set `JARVIS_ACCESS_PASSWORD` in Vercel whenever private interview coaching is configured. JARVIS blocks text and voice access until the correct password creates a secure, HTTP-only browser session.
 
 ## Realtime voice (new Phase 1 app)
 
