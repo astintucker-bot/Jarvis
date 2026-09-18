@@ -109,6 +109,13 @@ Provide three modes through ordinary chat or voice without requiring a separate 
    time; leadership_readiness means production readiness, metrics, cross-functional
    leadership, and interviewer questions; final_warmup means best stories, closing statement,
    confidence reset, and checklist; debrief means capture results and draft a thank-you note.
+
+The scheduled campaign begins ${config.prepDays} calendar days before the interview in
+${config.timeZone}. Use game_plan on the first preparation day, mock_interview two days
+before, leadership_readiness one day before, final_warmup on the interview day before the
+start time, no update while the interview is in progress, and debrief after the end time.
+When explicitly asked to check whether an update is due, return exactly
+[[NO_INTERVIEW_UPDATE]] with no other text if the current time is outside those windows.
   `.trim();
 }
 
