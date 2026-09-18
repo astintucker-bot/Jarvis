@@ -8,6 +8,12 @@ type Direction = { destination: string; url: string };
 type UploadedDocument = { name: string; text: string };
 type WordAttachment = { name: string; mimeType: string; base64: string };
 type PendingWordEdit = { token: string; name: string; draftUrl?: string };
+type InterviewPhase = "game_plan" | "mock_interview" | "leadership_readiness" | "final_warmup" | "debrief";
+type InterviewBriefing = { active: boolean; dateKey?: string; phase?: InterviewPhase };
+
+function interviewInstruction(phase: InterviewPhase) {
+  return `Deliver my scheduled private interview coaching update for the ${phase} phase. Use the interview details and background from your private instructions. Speak directly to me without mentioning hidden configuration.`;
+}
 
 function attachmentUrl(file: WordAttachment) {
   const binary = atob(file.base64); const bytes = new Uint8Array(binary.length);
@@ -20,6 +26,20 @@ export function JarvisConsole() {
   const [muted, setMuted] = useState(false); const [connected, setConnected] = useState(false); const [talking, setTalking] = useState(false); const [direction, setDirection] = useState<Direction | null>(null); const [uploadedDocument, setUploadedDocument] = useState<UploadedDocument | null>(null); const [editRequest, setEditRequest] = useState(""); const [editedFile, setEditedFile] = useState<{ name: string; url: string } | null>(null); const [editing, setEditing] = useState(false); const [textPrompt, setTextPrompt] = useState(""); const [sendingText, setSendingText] = useState(false); const [mode, setMode] = useState<"assistant" | "builder">("assistant"); const [wordFiles, setWordFiles] = useState<Array<{ name: string; url: string }>>([]); const [connectMicrosoft, setConnectMicrosoft] = useState(false); const [pendingWordEdit, setPendingWordEdit] = useState<PendingWordEdit | null>(null);
   const peer = useRef<RTCPeerConnection | null>(null); const channel = useRef<RTCDataChannel | null>(null); const remoteAudio = useRef<HTMLAudioElement | null>(null); const microphone = useRef<MediaStream | null>(null); const documentInput = useRef<HTMLInputElement | null>(null); const documentContext = useRef<string | null>(null); const chatHistory = useRef<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const add = (speaker: Line["speaker"], text: string) => setLines(current => [...current.slice(-18), { speaker, text }]);
+  const deliverVoiceInterviewBriefing = async () => {
+    if (channel.current?.readyState !== "open") return;
+    try {
+      const response = await fetch("/api/interview/briefing", { cache: "no-store" });
+      const briefing = await response.json() as InterviewBriefing;
+      if (!response.ok || !briefing.active || !briefing.dateKey || !briefing.phase) return;
+      const key = `jarvis-interview-voice-${briefing.dateKey}`;
+      if (window.localStorage.getItem(key)) return;
+      window.localStorage.setItem(key, "delivered");
+      channel.current?.send(JSON.stringify({ type: "conversation.item.create", item: { type: "message", role: "user", content: [{ type: "input_text", text: interviewInstruction(briefing.phase) }] } }));
+      channel.current?.send(JSON.stringify({ type: "response.create" }));
+      setStatus("THINKING");
+    } catch { /* Voice remains available even if the private briefing check fails. */ }
+  };
   const stopOutput = () => { channel.current?.readyState === "open" && channel.current.send(JSON.stringify({ type: "response.cancel" })); channel.current?.readyState === "open" && channel.current.send(JSON.stringify({ type: "output_audio_buffer.clear" })); setStatus("LISTENING"); };
   const beginTalking = () => { if (!connected) return; stopOutput(); microphone.current?.getAudioTracks().forEach(track => { track.enabled = true; }); setTalking(true); setStatus("LISTENING"); };
   const finishTalking = () => { if (!talking) return; microphone.current?.getAudioTracks().forEach(track => { track.enabled = false; }); setTalking(false); channel.current?.readyState === "open" && channel.current.send(JSON.stringify({ type: "input_audio_buffer.commit" })); channel.current?.readyState === "open" && channel.current.send(JSON.stringify({ type: "response.create" })); setStatus("THINKING"); };
@@ -82,7 +102,7 @@ export function JarvisConsole() {
       const pc = new RTCPeerConnection(); peer.current = pc; stream.getTracks().forEach(track => pc.addTrack(track, stream));
       pc.ontrack = event => { if (!remoteAudio.current) return; remoteAudio.current.srcObject = event.streams[0]; remoteAudio.current.muted = muted; void remoteAudio.current.play(); };
       const dc = pc.createDataChannel("oai-events"); channel.current = dc;
-      dc.onopen = () => { setConnected(true); setStatus("LISTENING"); addDocumentToSession(); add("SYSTEM", "Live voice link established"); };
+      dc.onopen = () => { setConnected(true); setStatus("LISTENING"); addDocumentToSession(); add("SYSTEM", "Live voice link established"); void deliverVoiceInterviewBriefing(); };
       dc.onmessage = event => {
         let message: { type?: string; transcript?: string; name?: string; arguments?: string; call_id?: string };
         try { message = JSON.parse(event.data); } catch { return; }
@@ -172,7 +192,30 @@ export function JarvisConsole() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const connectedWord = params.get("word_connected") === "1"; const wordError = params.get("word_error");
-    queueMicrotask(() => { if (connectedWord) { add("SYSTEM", "Microsoft Word and OneDrive connected securely."); setConnectMicrosoft(false); } if (wordError) add("SYSTEM", wordError); });
+    queueMicrotask(() => {
+      if (connectedWord) { add("SYSTEM", "Microsoft Word and OneDrive connected securely."); setConnectMicrosoft(false); }
+      if (wordError) add("SYSTEM", wordError);
+      let pendingInterviewKey: string | null = null;
+      void fetch("/api/interview/briefing", { cache: "no-store" })
+        .then(async response => {
+          const briefing = await response.json() as InterviewBriefing;
+          if (!response.ok || !briefing.active || !briefing.dateKey || !briefing.phase) return;
+          const interviewKey = `jarvis-interview-text-${briefing.dateKey}`;
+          if (window.localStorage.getItem(interviewKey)) return;
+          pendingInterviewKey = interviewKey;
+          window.localStorage.setItem(interviewKey, "pending");
+          add("SYSTEM", "Preparing today's private interview coaching update…");
+          const chatResponse = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: interviewInstruction(briefing.phase) }) });
+          const result = await chatResponse.json() as { reply?: string; error?: string };
+          if (!chatResponse.ok || !result.reply) throw new Error(result.error || "Today's interview update is unavailable.");
+          add("JARVIS", result.reply); chatHistory.current.push({ role: "assistant", content: result.reply });
+          window.localStorage.setItem(interviewKey, "delivered");
+        })
+        .catch(error => {
+          if (pendingInterviewKey) window.localStorage.removeItem(pendingInterviewKey);
+          add("SYSTEM", error instanceof Error ? error.message : "Today's interview update is unavailable.");
+        });
+    });
     if (params.has("word_connected") || params.has("word_error")) window.history.replaceState({}, "", window.location.pathname);
     return () => close();
   }, []);
