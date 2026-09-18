@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { NextRequest, NextResponse } from "next/server";
+import { extractWordText } from "../../../lib/wordDocuments";
 
 export const runtime = "nodejs";
 const run = promisify(execFile);
@@ -24,7 +25,7 @@ async function extract(name: string, bytes: Buffer) {
   const source = join(folder, `upload${suffix}`);
   try {
     await writeFile(source, bytes);
-    if (suffix === ".docx") return cleanXml((await run("unzip", ["-p", source, "word/document.xml"], { encoding: "utf8", timeout: 15_000 })).stdout);
+    if (suffix === ".docx") return extractWordText(bytes);
     if (suffix === ".xlsx") {
       const files = (await run("unzip", ["-Z1", source], { encoding: "utf8", timeout: 15_000 })).stdout.split("\n");
       const sharedXml = files.includes("xl/sharedStrings.xml") ? (await run("unzip", ["-p", source, "xl/sharedStrings.xml"], { encoding: "utf8" })).stdout : "";

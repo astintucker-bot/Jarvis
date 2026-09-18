@@ -6,10 +6,18 @@ type Status = "READY" | "CONNECTING" | "LISTENING" | "THINKING" | "SPEAKING" | "
 type Line = { speaker: "YOU" | "JARVIS" | "SYSTEM"; text: string };
 type Direction = { destination: string; url: string };
 type UploadedDocument = { name: string; text: string };
+type WordAttachment = { name: string; mimeType: string; base64: string };
+type PendingWordEdit = { token: string; name: string; draftUrl?: string };
+
+function attachmentUrl(file: WordAttachment) {
+  const binary = atob(file.base64); const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return URL.createObjectURL(new Blob([bytes], { type: file.mimeType }));
+}
 
 export function JarvisConsole() {
   const [status, setStatus] = useState<Status>("READY"); const [lines, setLines] = useState<Line[]>([]);
-  const [muted, setMuted] = useState(false); const [connected, setConnected] = useState(false); const [talking, setTalking] = useState(false); const [direction, setDirection] = useState<Direction | null>(null); const [uploadedDocument, setUploadedDocument] = useState<UploadedDocument | null>(null); const [editRequest, setEditRequest] = useState(""); const [editedFile, setEditedFile] = useState<{ name: string; url: string } | null>(null); const [editing, setEditing] = useState(false); const [textPrompt, setTextPrompt] = useState(""); const [sendingText, setSendingText] = useState(false); const [mode, setMode] = useState<"assistant" | "builder">("assistant");
+  const [muted, setMuted] = useState(false); const [connected, setConnected] = useState(false); const [talking, setTalking] = useState(false); const [direction, setDirection] = useState<Direction | null>(null); const [uploadedDocument, setUploadedDocument] = useState<UploadedDocument | null>(null); const [editRequest, setEditRequest] = useState(""); const [editedFile, setEditedFile] = useState<{ name: string; url: string } | null>(null); const [editing, setEditing] = useState(false); const [textPrompt, setTextPrompt] = useState(""); const [sendingText, setSendingText] = useState(false); const [mode, setMode] = useState<"assistant" | "builder">("assistant"); const [wordFiles, setWordFiles] = useState<Array<{ name: string; url: string }>>([]); const [connectMicrosoft, setConnectMicrosoft] = useState(false); const [pendingWordEdit, setPendingWordEdit] = useState<PendingWordEdit | null>(null);
   const peer = useRef<RTCPeerConnection | null>(null); const channel = useRef<RTCDataChannel | null>(null); const remoteAudio = useRef<HTMLAudioElement | null>(null); const microphone = useRef<MediaStream | null>(null); const documentInput = useRef<HTMLInputElement | null>(null); const documentContext = useRef<string | null>(null); const chatHistory = useRef<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const add = (speaker: Line["speaker"], text: string) => setLines(current => [...current.slice(-18), { speaker, text }]);
   const stopOutput = () => { channel.current?.readyState === "open" && channel.current.send(JSON.stringify({ type: "response.cancel" })); channel.current?.readyState === "open" && channel.current.send(JSON.stringify({ type: "output_audio_buffer.clear" })); setStatus("LISTENING"); };
@@ -26,12 +34,11 @@ export function JarvisConsole() {
     setEditing(true); add("SYSTEM", `Creating an edited copy of ${uploadedDocument.name}…`);
     try {
       const response = await fetch("/api/documents/edit", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...uploadedDocument, instruction: editRequest }) });
-      const result = await response.json() as { text?: string; error?: string };
-      if (!response.ok || !result.text) throw new Error(result.error || "JARVIS could not create the edited copy.");
+      const result = await response.json() as { name?: string; mimeType?: string; base64?: string; error?: string };
+      if (!response.ok || !result.name || !result.mimeType || !result.base64) throw new Error(result.error || "JARVIS could not create the edited copy.");
       if (editedFile) URL.revokeObjectURL(editedFile.url);
-      const name = `${uploadedDocument.name.replace(/\.[^.]+$/, "")}-edited.txt`;
-      setEditedFile({ name, url: URL.createObjectURL(new Blob([result.text], { type: "text/plain;charset=utf-8" })) });
-      add("SYSTEM", "Edited copy ready to download.");
+      setEditedFile({ name: result.name, url: attachmentUrl({ name: result.name, mimeType: result.mimeType, base64: result.base64 }) });
+      add("SYSTEM", "Edited Word copy ready to download.");
     } catch (error) { add("SYSTEM", error instanceof Error ? error.message : "JARVIS could not create the edited copy."); }
     finally { setEditing(false); }
   };
@@ -54,10 +61,17 @@ export function JarvisConsole() {
     if (!message || sendingText) return;
     setSendingText(true); setTextPrompt(""); add("YOU", message); chatHistory.current.push({ role: "user", content: message });
     try {
-      const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: chatHistory.current.slice(-30) }) });
-      const result = await response.json() as { reply?: string; error?: string };
+      const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: chatHistory.current.slice(-30), pendingWordEdit }) });
+      const result = await response.json() as { reply?: string; error?: string; attachments?: WordAttachment[]; connectMicrosoft?: boolean; pendingWordEdit?: PendingWordEdit | null };
       if (!response.ok || !result.reply) throw new Error(result.error || "JARVIS could not reply.");
       add("JARVIS", result.reply); chatHistory.current.push({ role: "assistant", content: result.reply });
+      if (result.attachments?.length) {
+        const downloads = result.attachments.map(file => ({ name: file.name, url: attachmentUrl(file) }));
+        setWordFiles(current => { current.forEach(file => URL.revokeObjectURL(file.url)); return downloads; });
+        downloads.forEach(file => add("SYSTEM", `${file.name} is ready to download.`));
+      }
+      setConnectMicrosoft(Boolean(result.connectMicrosoft));
+      setPendingWordEdit(result.pendingWordEdit ?? null);
     } catch (error) { add("SYSTEM", error instanceof Error ? error.message : "JARVIS could not reply."); }
     finally { setSendingText(false); }
   };
@@ -129,6 +143,24 @@ export function JarvisConsole() {
             channel.current?.send(JSON.stringify({ type: "response.create" }));
           })();
         }
+        if (message.type === "response.function_call_arguments.done" && message.name === "manage_word_documents" && message.call_id) {
+          let wordRequest = "";
+          try { wordRequest = JSON.parse(message.arguments || "{}").request || ""; } catch { /* The tool output reports the invalid request. */ }
+          void (async () => {
+            let output: unknown = { error: "A Word-document request is required." };
+            if (wordRequest) {
+              try {
+                const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: wordRequest, pendingWordEdit }) });
+                const result = await response.json() as { reply?: string; error?: string; attachments?: WordAttachment[]; connectMicrosoft?: boolean; pendingWordEdit?: PendingWordEdit | null };
+                if (result.attachments?.length) setWordFiles(current => { current.forEach(file => URL.revokeObjectURL(file.url)); return result.attachments!.map(file => ({ name: file.name, url: attachmentUrl(file) })); });
+                setConnectMicrosoft(Boolean(result.connectMicrosoft)); setPendingWordEdit(result.pendingWordEdit ?? null);
+                output = response.ok ? { result: result.reply, downloadReady: Boolean(result.attachments?.length), connectMicrosoft: Boolean(result.connectMicrosoft), confirmationRequired: Boolean(result.pendingWordEdit) } : { error: result.error || "The Word operation failed." };
+              } catch { output = { error: "Word tools are temporarily unavailable." }; }
+            }
+            channel.current?.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: message.call_id, output: JSON.stringify(output) } }));
+            channel.current?.send(JSON.stringify({ type: "response.create" }));
+          })();
+        }
       };
       const offer = await pc.createOffer(); await pc.setLocalDescription(offer);
       const form = new FormData(); form.set("sdp", offer.sdp || "");
@@ -137,6 +169,13 @@ export function JarvisConsole() {
       await pc.setRemoteDescription({ type: "answer", sdp: await response.text() });
     } catch (error) { close(); setStatus("ERROR"); add("SYSTEM", error instanceof Error ? error.message : "Microphone connection failed."); }
   };
-  useEffect(() => () => close(), []);
-  return <main className="jarvis"><audio ref={remoteAudio} autoPlay /><input ref={documentInput} className="file-input" type="file" accept=".pdf,.docx,.txt,.md,.csv,.json,.xlsx" onChange={event => { const file = event.target.files?.[0]; if (file) void uploadDocument(file); event.currentTarget.value = ""; }} /><header><span>● {status}</span><span>J . A . R . V . I . S .</span><span>{connected ? "SECURE LIVE LINK" : "ONLINE"}</span></header><nav className="mode-switch"><button className={mode === "assistant" ? "active" : ""} onClick={() => setMode("assistant")}>ASSISTANT</button><button className={mode === "builder" ? "active" : ""} onClick={() => setMode("builder")}>APP BUILDER</button></nav>{mode === "builder" ? <AppBuilder /> : <><section className={`orb ${status.toLowerCase()}`}><i /><i /><b>J</b></section><h1>JARVIS</h1><p>Just A Rather Very Intelligent System</p>{direction && <a className="directions" href={direction.url} target="_blank" rel="noreferrer">OPEN APPLE MAPS: {direction.destination}</a>}{uploadedDocument && <section className="edit-panel"><small>EDITING COPY: {uploadedDocument.name}</small><input value={editRequest} onChange={event => setEditRequest(event.target.value)} placeholder="Describe the change you want Jarvis to make" /><button disabled={!editRequest.trim() || editing} onClick={() => void createEditedCopy()}>{editing ? "EDITING…" : "CREATE EDITED COPY"}</button>{editedFile && <a href={editedFile.url} download={editedFile.name}>DOWNLOAD EDITED COPY</a>}</section>}<section className="transcript" aria-live="polite">{lines.map((line, index) => <div key={index} className={line.speaker.toLowerCase()}><small>{line.speaker}</small>{line.text}</div>)}</section><form className="text-chat" onSubmit={event => { event.preventDefault(); void sendText(); }}><input value={textPrompt} onChange={event => setTextPrompt(event.target.value)} disabled={sendingText} placeholder="Type a request to JARVIS" aria-label="Message JARVIS" /><button disabled={!textPrompt.trim() || sendingText}>{sendingText ? "SENDING…" : "SEND"}</button></form><footer><button onClick={start}>{connected ? "END" : "START"}</button><button onClick={() => documentInput.current?.click()}>UPLOAD FILE</button><button className={talking ? "talking" : ""} disabled={!connected} onPointerDown={beginTalking} onPointerUp={finishTalking} onPointerCancel={finishTalking} onPointerLeave={finishTalking}>{talking ? "RELEASE TO SEND" : "HOLD TO TALK"}</button><button onClick={() => { setMuted(value => !value); if (remoteAudio.current) remoteAudio.current.muted = !muted; }}>{muted ? "UNMUTE" : "MUTE"}</button></footer></>}</main>;
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connectedWord = params.get("word_connected") === "1"; const wordError = params.get("word_error");
+    queueMicrotask(() => { if (connectedWord) { add("SYSTEM", "Microsoft Word and OneDrive connected securely."); setConnectMicrosoft(false); } if (wordError) add("SYSTEM", wordError); });
+    if (params.has("word_connected") || params.has("word_error")) window.history.replaceState({}, "", window.location.pathname);
+    return () => close();
+  }, []);
+  useEffect(() => () => { wordFiles.forEach(file => URL.revokeObjectURL(file.url)); }, [wordFiles]);
+  return <main className="jarvis"><audio ref={remoteAudio} autoPlay /><input ref={documentInput} className="file-input" type="file" accept=".pdf,.docx,.txt,.md,.csv,.json,.xlsx" onChange={event => { const file = event.target.files?.[0]; if (file) void uploadDocument(file); event.currentTarget.value = ""; }} /><header><span>● {status}</span><span>J . A . R . V . I . S .</span><span>{connected ? "SECURE LIVE LINK" : "ONLINE"}</span></header><nav className="mode-switch"><button className={mode === "assistant" ? "active" : ""} onClick={() => setMode("assistant")}>ASSISTANT</button><button className={mode === "builder" ? "active" : ""} onClick={() => setMode("builder")}>APP BUILDER</button></nav>{mode === "builder" ? <AppBuilder /> : <><section className={`orb ${status.toLowerCase()}`}><i /><i /><b>J</b></section><h1>JARVIS</h1><p>Just A Rather Very Intelligent System</p>{direction && <a className="directions" href={direction.url} target="_blank" rel="noreferrer">OPEN APPLE MAPS: {direction.destination}</a>}{connectMicrosoft && <a className="directions" href="/api/microsoft/login">CONNECT MICROSOFT WORD</a>}{pendingWordEdit?.draftUrl && <a className="directions" href={pendingWordEdit.draftUrl} target="_blank" rel="noreferrer">REVIEW WORD DRAFT: {pendingWordEdit.name}</a>}{wordFiles.map(file => <a key={file.url} className="directions" href={file.url} download={file.name}>DOWNLOAD WORD FILE: {file.name}</a>)}{uploadedDocument && <section className="edit-panel"><small>EDITING COPY: {uploadedDocument.name}</small><input value={editRequest} onChange={event => setEditRequest(event.target.value)} placeholder="Describe the change you want Jarvis to make" /><button disabled={!editRequest.trim() || editing} onClick={() => void createEditedCopy()}>{editing ? "EDITING…" : "CREATE EDITED WORD COPY"}</button>{editedFile && <a href={editedFile.url} download={editedFile.name}>DOWNLOAD EDITED WORD COPY</a>}</section>}<section className="transcript" aria-live="polite">{lines.map((line, index) => <div key={index} className={line.speaker.toLowerCase()}><small>{line.speaker}</small>{line.text}</div>)}</section><form className="text-chat" onSubmit={event => { event.preventDefault(); void sendText(); }}><input value={textPrompt} onChange={event => setTextPrompt(event.target.value)} disabled={sendingText} placeholder="Type a request to JARVIS" aria-label="Message JARVIS" /><button disabled={!textPrompt.trim() || sendingText}>{sendingText ? "SENDING…" : "SEND"}</button></form><footer><button onClick={start}>{connected ? "END" : "START"}</button><button onClick={() => documentInput.current?.click()}>UPLOAD FILE</button><button className={talking ? "talking" : ""} disabled={!connected} onPointerDown={beginTalking} onPointerUp={finishTalking} onPointerCancel={finishTalking} onPointerLeave={finishTalking}>{talking ? "RELEASE TO SEND" : "HOLD TO TALK"}</button><button onClick={() => { setMuted(value => !value); if (remoteAudio.current) remoteAudio.current.muted = !muted; }}>{muted ? "UNMUTE" : "MUTE"}</button></footer></>}</main>;
 }

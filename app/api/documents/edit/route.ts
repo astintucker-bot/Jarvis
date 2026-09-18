@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createWordDocument, safeWordFilename } from "../../../../lib/wordDocuments";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,8 @@ export async function POST(request: NextRequest) {
     const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }>; error?: { message?: string } };
     const revised = payload.choices?.[0]?.message?.content?.trim();
     if (!response.ok || !revised) return NextResponse.json({ error: payload.error?.message || "The AI service could not edit this document." }, { status: response.status || 502 });
-    return NextResponse.json({ text: revised.slice(0, 60_000) });
+    const outputName = safeWordFilename(`${name.replace(/\.[^.]+$/, "")}-edited`);
+    const bytes = await createWordDocument(name.replace(/\.[^.]+$/, ""), revised.slice(0, 60_000));
+    return NextResponse.json({ name: outputName, mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", base64: bytes.toString("base64") });
   } catch { return NextResponse.json({ error: "The AI service is temporarily unavailable." }, { status: 503 }); }
 }

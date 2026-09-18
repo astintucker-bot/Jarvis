@@ -2,6 +2,15 @@
 
 Secure JARVIS command center with live voice, flagship reasoning, web-aware multi-turn chat, file tools, weather, music controls, and an AI App Builder.
 
+## Microsoft Word and OneDrive
+
+- Ask JARVIS normally to create a Word document; it returns a real `.docx` download without adding another permanent interface button.
+- After Microsoft authorization, JARVIS can find and read `.docx` files in OneDrive and prepare edits conversationally.
+- Existing files are never overwritten on the initial request. JARVIS creates a reviewable draft and requires a separate explicit confirmation before replacing the original. OneDrive version history remains available.
+- Register a Microsoft Entra web application and add `https://YOUR-DOMAIN/api/microsoft/callback` as its redirect URI.
+- Add `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, `MICROSOFT_SESSION_SECRET` (at least 32 random characters), and optionally `MICROSOFT_TENANT_ID` and `MICROSOFT_REDIRECT_URI` to Vercel.
+- The delegated scope is `Files.ReadWrite`, so access is limited to the signed-in user's files. OAuth tokens are encrypted in an HTTP-only, secure cookie and are never exposed to browser JavaScript.
+
 ## App Builder and advanced intelligence
 
 - Select **APP BUILDER** in the interface, describe a product, and choose a preferred stack.
@@ -24,7 +33,7 @@ The new Next.js app lives alongside the original Python version so the existing 
 
 ## Vercel production deployment
 
-Vercel needs `OPENAI_API_KEY` and can optionally set `JARVIS_TEXT_MODEL`, `JARVIS_BUILDER_MODEL`, `JARVIS_REASONING_EFFORT`, `JARVIS_REALTIME_MODEL`, and `JARVIS_VOICE`. Do not add a `NEXT_PUBLIC_` prefix to the API key. Add them in the Vercel Production environment and use the resulting HTTPS URL for microphone access.
+Vercel needs `OPENAI_API_KEY` and can optionally set `JARVIS_TEXT_MODEL`, `JARVIS_BUILDER_MODEL`, `JARVIS_REASONING_EFFORT`, `JARVIS_REALTIME_MODEL`, and `JARVIS_VOICE`. Word/OneDrive access additionally needs the Microsoft variables described above. Do not add a `NEXT_PUBLIC_` prefix to any credential. Add them in the Vercel Production environment and use the resulting HTTPS URL for microphone access.
 
 The new Phase 1 page is intentionally separate from `server.py`. The legacy app still starts with `python3 server.py` and is documented below.
 
