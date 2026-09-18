@@ -9,6 +9,13 @@ const GRAPH_ROOT = "https://graph.microsoft.com/v1.0";
 
 export type MicrosoftSession = { accessToken: string; refreshToken: string; expiresAt: number; displayName?: string };
 export type WordDriveItem = { id: string; name: string; webUrl?: string; lastModifiedDateTime?: string; size?: number; folder?: unknown; file?: unknown };
+export type MicrosoftCalendarEvent = {
+  id: string; subject?: string; bodyPreview?: string; start?: { dateTime?: string; timeZone?: string };
+  end?: { dateTime?: string; timeZone?: string }; organizer?: { emailAddress?: { name?: string; address?: string } };
+  attendees?: Array<{ emailAddress?: { name?: string; address?: string }; status?: { response?: string } }>;
+  location?: { displayName?: string }; importance?: string; webLink?: string; isCancelled?: boolean;
+  responseStatus?: { response?: string };
+};
 
 export class MicrosoftConnectionError extends Error {
   constructor(message = "Connect your Microsoft account before accessing OneDrive Word documents.") { super(message); }
@@ -53,8 +60,8 @@ export function createMicrosoftAuthorization(request: NextRequest) {
   const challenge = createHash("sha256").update(verifier).digest("base64url");
   const params = new URLSearchParams({
     client_id: process.env.MICROSOFT_CLIENT_ID!, response_type: "code", redirect_uri: redirectUri(request),
-    response_mode: "query", scope: "openid profile offline_access Files.ReadWrite", state,
-    code_challenge: challenge, code_challenge_method: "S256", prompt: "select_account",
+    response_mode: "query", scope: "openid profile offline_access Files.ReadWrite Calendars.Read", state,
+    code_challenge: challenge, code_challenge_method: "S256", prompt: "consent",
   });
   return { url: `https://login.microsoftonline.com/${tenant()}/oauth2/v2.0/authorize?${params}`, state, verifier };
 }
@@ -79,7 +86,7 @@ export async function exchangeMicrosoftCode(request: NextRequest, code: string, 
 async function refreshMicrosoftSession(session: MicrosoftSession) {
   return tokenRequest(new URLSearchParams({
     client_id: process.env.MICROSOFT_CLIENT_ID!, client_secret: process.env.MICROSOFT_CLIENT_SECRET!,
-    grant_type: "refresh_token", refresh_token: session.refreshToken, scope: "openid profile offline_access Files.ReadWrite",
+    grant_type: "refresh_token", refresh_token: session.refreshToken, scope: "openid profile offline_access Files.ReadWrite Calendars.Read",
   }), session.refreshToken);
 }
 
@@ -115,6 +122,14 @@ async function graphFetch(accessToken: string, path: string, init: RequestInit =
 
 export async function getMicrosoftProfile(accessToken: string) {
   return (await (await graphFetch(accessToken, "/me?$select=displayName,userPrincipalName")).json()) as { displayName?: string; userPrincipalName?: string };
+}
+
+export async function listMicrosoftCalendarEvents(accessToken: string, start: Date, end: Date) {
+  const select = "id,subject,bodyPreview,start,end,organizer,attendees,location,importance,webLink,isCancelled,responseStatus";
+  const path = `/me/calendarView?startDateTime=${encodeURIComponent(start.toISOString())}&endDateTime=${encodeURIComponent(end.toISOString())}&$select=${select}&$orderby=start/dateTime&$top=50`;
+  const response = await graphFetch(accessToken, path, { headers: { Prefer: 'outlook.timezone="UTC"' } });
+  const payload = await response.json() as { value?: MicrosoftCalendarEvent[] };
+  return (payload.value || []).filter(event => !event.isCancelled && event.responseStatus?.response !== "declined");
 }
 
 export async function listWordDocuments(accessToken: string, query?: string) {
