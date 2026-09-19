@@ -11,11 +11,13 @@ PORT = 18765
 SCRIPTS = {
     'status': 'tell application "Music" to get player state',
     'play': 'tell application "Music" to play',
+    'stop': 'tell application "Music" to stop',
     'pause': 'tell application "Music" to pause',
     'next': 'tell application "Music" to next track',
     'volume_up': 'tell application "Music"\nset v to sound volume + 10\nif v > 100 then set v to 100\nset sound volume to v\nend tell',
     'volume_down': 'tell application "Music"\nset v to sound volume - 10\nif v < 0 then set v to 0\nset sound volume to v\nend tell',
 }
+SONG_SCRIPT = 'on run argv\nset requestedTitle to item 1 of argv\nset requestedArtist to item 2 of argv\ntell application "/System/Applications/Music.app"\nset matches to search library playlist 1 for (word 1 of requestedTitle) only names\nset selectedTrack to missing value\nset selectedArtist to ""\nrepeat with candidate in matches\nset candidateTitle to name of candidate as text\nset candidateArtist to artist of candidate as text\nignoring case\nset titleMatches to (my canonicalTitle(candidateTitle)) is (my canonicalTitle(requestedTitle))\nset artistMatches to requestedArtist is "" or candidateArtist is requestedArtist\nend ignoring\nif titleMatches and artistMatches then\nif selectedTrack is not missing value and requestedArtist is "" then\nignoring case\nif candidateArtist is not selectedArtist then return "AMBIGUOUS"\nend ignoring\nend if\nif selectedTrack is missing value then\nset selectedTrack to contents of candidate\nset selectedArtist to candidateArtist\nend if\nend if\nend repeat\nif selectedTrack is missing value then return "NO_MATCH"\nplay selectedTrack\nreturn "TRACK" & tab & (name of selectedTrack as text) & tab & (artist of selectedTrack as text)\nend tell\nend run\n\non canonicalTitle(value)\nset savedDelimiters to AppleScript\'s text item delimiters\nset AppleScript\'s text item delimiters to "&"\nset pieces to text items of value\nset AppleScript\'s text item delimiters to "and"\nset normalized to pieces as text\nset AppleScript\'s text item delimiters to savedDelimiters\nreturn normalized\nend canonicalTitle'
 TOKEN = secrets.token_urlsafe(24)
 
 class Handler(BaseHTTPRequestHandler):
@@ -58,14 +60,27 @@ class Handler(BaseHTTPRequestHandler):
                 return self.reply(400, {'error': 'Invalid request size.'})
             body = json.loads(self.rfile.read(length))
             action = body.get('action') if isinstance(body, dict) else None
-            if not isinstance(action, str) or action not in SCRIPTS:
+            if not isinstance(action, str) or action not in (*SCRIPTS, 'play_song'):
                 return self.reply(400, {'error': 'Unsupported music action.'})
+            title, artist = body.get('title', ''), body.get('artist', '')
+            if action == 'play_song' and (not isinstance(title, str) or not title.strip() or not isinstance(artist, str) or len(title) > 200 or len(artist) > 200 or any(ord(c) < 32 for c in title + artist)):
+                return self.reply(400, {'error': 'Provide a song title and optional artist, each at most 200 characters.'})
         except (ValueError, OSError):
             return self.reply(400, {'error': 'Invalid request.'})
         try:
-            result = subprocess.run(['/usr/bin/osascript', '-e', SCRIPTS[action]],
+            command = ['/usr/bin/osascript', '-e', SONG_SCRIPT, '--', title.strip(), artist.strip()] if action == 'play_song' else ['/usr/bin/osascript', '-e', SCRIPTS[action]]
+            result = subprocess.run(command,
                                     capture_output=True, text=True, timeout=20, check=True)
-            self.reply(200, {'ok': True, 'action': action, 'state': result.stdout.strip()})
+            state = result.stdout.strip()
+            if action == 'play_song':
+                if state == 'NO_MATCH':
+                    return self.reply(404, {'error': 'That song was not found in your Music library. Add it to your library in Apple Music, then ask again. This connection searches your library, not the full Apple Music catalog.'})
+                if state == 'AMBIGUOUS':
+                    return self.reply(409, {'error': 'Several artists have that song title in your library. Include the artist, for example: play More and More by Joe.'})
+                if not state.startswith('TRACK\t'):
+                    return self.reply(503, {'error': 'Music did not confirm the selected song.'})
+                return self.reply(200, {'ok': True, 'action': action, 'message': 'Playing ' + state[6:].replace('\t', ' by ', 1) + '.'})
+            self.reply(200, {'ok': True, 'action': action, 'state': state})
         except (subprocess.SubprocessError, OSError):
             self.reply(503, {'error': 'Music did not respond. Open Music and allow Terminal to control Music in System Settings > Privacy & Security > Automation, then retry.'})
 

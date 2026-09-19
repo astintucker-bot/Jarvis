@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { MusicControls } from "./app/MusicControls";
+import { parseMusicRequest, musicReply } from "./lib/music-request";
 import { controlMacMusic } from "./lib/mac-music";
 import { AppBuilder } from "./app/AppBuilder";
 
@@ -90,6 +91,13 @@ export function JarvisConsole() {
     if (!message || sendingText) return;
     setSendingText(true); setTextPrompt(""); add("YOU", message); chatHistory.current.push({ role: "user", content: message });
     try {
+      const music = parseMusicRequest(message);
+      if (music) {
+        const result = await controlMacMusic(music.action, music.title, music.artist);
+        const reply = musicReply(music.action, result);
+        add("JARVIS", reply); chatHistory.current.push({ role: "assistant", content: reply });
+        return;
+      }
       const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ messages: chatHistory.current.slice(-30), pendingWordEdit }) });
       const result = await response.json() as { reply?: string; error?: string; attachments?: WordAttachment[]; connectMicrosoft?: boolean; pendingWordEdit?: PendingWordEdit | null };
       if (!response.ok || !result.reply) throw new Error(result.error || "JARVIS could not reply.");
@@ -157,11 +165,11 @@ export function JarvisConsole() {
           })();
         }
         if (message.type === "response.function_call_arguments.done" && message.name === "control_apple_music" && message.call_id) {
-          let action = "";
-          try { action = JSON.parse(message.arguments || "{}").action || ""; } catch { /* The API validates unsupported actions. */ }
+          let action = "", title = "", artist = "";
+          try { const args = JSON.parse(message.arguments || "{}"); action = args.action || ""; title = args.title || ""; artist = args.artist || ""; } catch { /* The API validates unsupported actions. */ }
           void (async () => {
             let output: unknown;
-            try { output = await controlMacMusic(action); }
+            try { output = await controlMacMusic(action, title, artist); }
             catch { output = { error: "Apple Music control is temporarily unavailable." }; }
             channel.current?.send(JSON.stringify({ type: "conversation.item.create", item: { type: "function_call_output", call_id: message.call_id, output: JSON.stringify(output) } }));
             channel.current?.send(JSON.stringify({ type: "response.create" }));

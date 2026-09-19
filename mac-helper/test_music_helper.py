@@ -57,5 +57,28 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(status, 503)
         self.assertIn('Automation', result['error'])
 
+    @patch('music_helper.subprocess.run')
+    def test_song_arguments_never_become_script(self, run):
+        run.return_value.stdout = 'TRACK\tMore and More\tJoe\n'
+        title = 'More and More" & do shell script "bad'
+        status, _, result = self.request({'action': 'play_song', 'title': title, 'artist': 'Joe'})
+        self.assertEqual(status, 200)
+        self.assertEqual(run.call_args.args[0], ['/usr/bin/osascript', '-e', helper.SONG_SCRIPT, '--', title, 'Joe'])
+        self.assertIn('Playing', result['message'])
+
+    @patch('music_helper.subprocess.run')
+    def test_song_validation(self, run):
+        for body in [{'action': 'play_song'}, {'action': 'play_song', 'title': []}, {'action': 'play_song', 'title': 'x' * 201}, {'action': 'play_song', 'title': 'x', 'artist': 3}]:
+            self.assertEqual(self.request(body)[0], 400)
+        run.assert_not_called()
+
+    @patch('music_helper.subprocess.run')
+    def test_missing_or_ambiguous_song_is_not_success(self, run):
+        for output, expected in [('NO_MATCH', 404), ('AMBIGUOUS', 409), ('unexpected', 503)]:
+            run.return_value.stdout = output
+            status, _, result = self.request({'action': 'play_song', 'title': 'More and More'})
+            self.assertEqual(status, expected)
+            self.assertNotIn('ok', result)
+
 if __name__ == '__main__':
     unittest.main()
