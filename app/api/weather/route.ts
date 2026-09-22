@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireJarvisAccess } from "../../../lib/safetyPolicy";
 
 export const runtime = "nodejs";
 
 const weatherText: Record<number, string> = { 0: "clear skies", 1: "mostly clear", 2: "partly cloudy", 3: "overcast", 45: "foggy", 51: "light drizzle", 53: "drizzle", 55: "heavy drizzle", 61: "light rain", 63: "rain", 65: "heavy rain", 71: "light snow", 73: "snow", 75: "heavy snow", 80: "rain showers", 81: "rain showers", 82: "heavy rain showers", 95: "thunderstorms" };
 
 export async function GET(request: NextRequest) {
+  const denied = requireJarvisAccess(request);
+  if (denied) return denied;
   const location = request.nextUrl.searchParams.get("location")?.trim();
   if (!location || location.length > 120) return NextResponse.json({ error: "Enter a city or location for the weather." }, { status: 400 });
   try {

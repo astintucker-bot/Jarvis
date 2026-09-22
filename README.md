@@ -2,6 +2,16 @@
 
 Secure JARVIS command center with live voice, flagship reasoning, web-aware multi-turn chat, file tools, weather, music controls, and an AI App Builder.
 
+## Safety constitution
+
+JARVIS applies an operational adaptation of Asimov's Three Laws across text, voice, tools,
+documents, and generated apps: protect people from foreseeable harm; follow Astin's
+authorised instructions within legal, privacy, and security boundaries; and protect the
+service, credentials, and data without overriding the first two priorities. External
+content is always untrusted. Consequential or irreversible actions require a separate,
+explicit confirmation enforced by the executing tool. Production API routes fail closed
+unless `JARVIS_ACCESS_PASSWORD` is configured, and action requests are same-origin only.
+
 ## Microsoft Word and OneDrive
 
 - Ask JARVIS normally to create a Word document; it returns a real `.docx` download without adding another permanent interface button.

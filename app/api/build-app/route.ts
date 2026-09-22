@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { APP_BUILDER_PROMPT } from "../../../lib/jarvisPrompt";
+import { JARVIS_SAFETY_POLICY, requireJarvisAccess } from "../../../lib/safetyPolicy";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -46,6 +47,8 @@ async function requestOpenAI(key: string, requestBody: Record<string, unknown>) 
 }
 
 export async function POST(request: NextRequest) {
+  const denied = requireJarvisAccess(request, { sideEffect: true });
+  if (denied) return denied;
   const key = process.env.OPENAI_API_KEY;
   if (!key) return NextResponse.json({ error: "App Builder is not configured. Add OPENAI_API_KEY." }, { status: 503 });
   try {
@@ -57,7 +60,7 @@ export async function POST(request: NextRequest) {
     const { response: upstream, payload } = await requestOpenAI(key, {
       model: process.env.JARVIS_BUILDER_MODEL || process.env.JARVIS_TEXT_MODEL || "gpt-6-astra",
       reasoning: { effort: process.env.JARVIS_REASONING_EFFORT || "high" },
-      instructions: APP_BUILDER_PROMPT,
+      instructions: `${APP_BUILDER_PROMPT}\n\n${JARVIS_SAFETY_POLICY}`,
       input: `APP IDEA:\n${idea}\n\nPREFERRED STACK:\n${stack || "Choose the best fit."}`,
       text: { format: { type: "json_schema", name: "app_project", strict: true, schema: projectSchema } },
       max_output_tokens: 64_000,

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { NextRequest, NextResponse } from "next/server";
 import { extractWordText } from "../../../lib/wordDocuments";
+import { requireJarvisAccess } from "../../../lib/safetyPolicy";
 
 export const runtime = "nodejs";
 const run = promisify(execFile);
@@ -54,6 +55,8 @@ async function extract(name: string, bytes: Buffer) {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = requireJarvisAccess(request, { sideEffect: true });
+  if (denied) return denied;
   const form = await request.formData();
   const file = form.get("document");
   if (!(file instanceof File) || !file.name || file.size === 0 || file.size > maxBytes) return NextResponse.json({ error: "Choose a supported file smaller than 10 MB." }, { status: 400 });

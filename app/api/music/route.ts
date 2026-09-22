@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { NextRequest, NextResponse } from "next/server";
+import { requireJarvisAccess } from "../../../lib/safetyPolicy";
 
 export const runtime = "nodejs";
 const run = promisify(execFile);
@@ -13,6 +14,8 @@ const scripts: Record<string, string> = {
 };
 
 export async function POST(request: NextRequest) {
+  const denied = requireJarvisAccess(request, { sideEffect: true });
+  if (denied) return denied;
   const body = await request.json().catch(() => ({})) as { action?: string };
   const script = body.action ? scripts[body.action] : undefined;
   if (!script) return NextResponse.json({ error: "Unsupported music action." }, { status: 400 });

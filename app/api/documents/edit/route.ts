@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createWordDocument, safeWordFilename } from "../../../../lib/wordDocuments";
+import { requireJarvisAccess } from "../../../../lib/safetyPolicy";
 
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
+  const denied = requireJarvisAccess(request, { sideEffect: true });
+  if (denied) return denied;
   const body = await request.json().catch(() => ({})) as { name?: string; text?: string; instruction?: string };
   const name = body.name?.trim(); const text = body.text?.trim(); const instruction = body.instruction?.trim();
   if (!name || !text || !instruction || text.length > 30_000 || instruction.length > 1_500) return NextResponse.json({ error: "Choose an uploaded document and provide a short edit request." }, { status: 400 });
